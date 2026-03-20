@@ -3,4 +3,4 @@ title: About
 type: about
 ---
 
-This is the about page.
+This website is currently being developed! Check in later&#128513;

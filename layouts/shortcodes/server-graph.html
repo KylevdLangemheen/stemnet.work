@@ -1,0 +1,183 @@
+<style>
+  #graph-area {
+    width: 100%;
+    position: relative;
+  }
+  #svg {
+    width: 100%;
+    height: 480px;
+    display: block;
+    overflow: visible;
+  }
+</style>
+
+<div id="graph-area">
+  <svg id="svg"></svg>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script>
+const COLORS = ['#EEEDFE','#AFA9EC','#7F77DD','#534AB7','#3C3489'];
+const LINK_COLORS = ['#B5D4F4','#85B7EB','#378ADD','#185FA5'];
+
+function generateSampleData(nServers=7, nUsers=800) {
+  const servers = [
+    "Artificial\nIntelligence",
+    "Biocord",
+    "Electrical\nEngineering",
+    "Mathcord",
+    "Neurofields",
+    "Physcord",
+    "PsychDen",
+  ];
+  const users = Array.from({length: nUsers}, (_, i) => `user_${i}`);
+  const rows = [];
+  servers.forEach(s => {
+    const count = 30 + Math.floor(Math.random() * 220);
+    const shuffled = [...users].sort(() => Math.random() - 0.5).slice(0, count);
+    shuffled.forEach(u => rows.push({server_name: s, user_name: u}));
+  });
+  return rows;
+}
+
+function computeGraph(rows, minOverlap) {
+  const serverUsers = new Map();
+  rows.forEach(({server_name, user_name}) => {
+    if (!serverUsers.has(server_name)) serverUsers.set(server_name, new Set());
+    serverUsers.get(server_name).add(user_name);
+  });
+  const servers = [...serverUsers.keys()];
+  const nodes = servers.map(id => ({
+    id,
+    size: serverUsers.get(id).size
+  }));
+  const links = [];
+  for (let i = 0; i < servers.length; i++) {
+    for (let j = i + 1; j < servers.length; j++) {
+      const a = serverUsers.get(servers[i]);
+      const b = serverUsers.get(servers[j]);
+      let overlap = 0;
+      const [small, big] = a.size < b.size ? [a, b] : [b, a];
+      small.forEach(u => { if (big.has(u)) overlap++; });
+      if (overlap >= minOverlap) {
+        links.push({ source: servers[i], target: servers[j], value: overlap });
+      }
+    }
+  }
+  return { nodes, links };
+}
+
+let currentData = generateSampleData();
+let simulation, svg, linkSel, nodeSel;
+
+function getParams() {
+  return {
+    minOverlap: 10,
+    linkStr: 0.01,
+    charge: 10
+  };
+}
+
+function render(rows) {
+  const {minOverlap, linkStr, charge} = getParams();
+  const {nodes, links} = computeGraph(rows, minOverlap);
+
+  const svgEl = document.getElementById('svg');
+  const W = svgEl.getBoundingClientRect().width || 640;
+  const H = 480;
+  d3.select(svgEl).selectAll('*').remove();
+
+  if (nodes.length === 0) {
+    d3.select(svgEl).append('text')
+      .attr('x', W/2).attr('y', H/2)
+      .attr('text-anchor','middle')
+      .attr('fill','var(--color-text-secondary)')
+      .attr('font-size','14px')
+      .text('No connections at this overlap threshold.');
+    return;
+  }
+
+  const maxSize = d3.max(nodes, d => d.size);
+  const maxOverlap = d3.max(links, d => d.value) || 1;
+
+  const nodeR = () => 38;
+  const linkW = d3.scalePow().exponent(0.6).domain([minOverlap, maxOverlap]).range([1.5, 12]);
+  const linkOpacity = d3.scaleLinear().domain([minOverlap, maxOverlap]).range([0.25, 0.8]);
+  const nodeColor = d3.scaleQuantile().domain(nodes.map(d => d.size)).range(COLORS.slice(1));
+  const linkColor = d3.scaleQuantile().domain(links.map(d => d.value)).range(LINK_COLORS);
+
+  const g = d3.select(svgEl).append('g');
+
+  // No zoomies!
+  // d3.select(svgEl).call(d3.zoom().scaleExtent([0.3, 4]).on('zoom', e => g.attr('transform', e.transform)));
+
+  linkSel = g.append('g').selectAll('line')
+    .data(links).join('line')
+    .attr('class', 'link')
+    .attr('stroke', d => linkColor(d.value))
+    .attr('stroke-width', d => linkW(d.value))
+    .attr('opacity', d => linkOpacity(d.value));
+
+  nodeSel = g.append('g').selectAll('g')
+    .data(nodes).join('g')
+    .attr('class', 'node')
+    .call(d3.drag()
+      .on('start', (e, d) => { if (!e.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+      .on('drag',  (e, d) => { d.fx = e.x; d.fy = e.y; })
+      .on('end',   (e, d) => { if (!e.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }));
+
+  nodeSel.append('circle')
+    .attr('r', d => nodeR(d.size))
+    .attr('fill', d => nodeColor(d.size))
+    .attr('stroke', 'var(--color-background-primary)')
+    .attr('stroke-width', 2)
+    .on('mouseover', (e, d) => {
+      const myLinks = links.filter(l => l.source.id === d.id || l.target.id === d.id);
+      const tip = document.getElementById('tooltip');
+      tip.style.display = 'block';
+      tip.innerHTML = `<strong>${d.id}</strong><br>Members: ${d.size}<br>Connections: ${myLinks.length}`;
+    })
+    .on('mousemove', e => {
+      const tip = document.getElementById('tooltip');
+      const rect = document.getElementById('graph-area').getBoundingClientRect();
+      tip.style.left = (e.clientX - rect.left + 10) + 'px';
+      tip.style.top  = (e.clientY - rect.top - 10) + 'px';
+    })
+    .on('mouseout', () => { document.getElementById('tooltip').style.display = 'none'; });
+
+  nodeSel.append('text')
+    .attr('text-anchor', 'middle')
+    .attr('pointer-events', 'all')
+    .attr('fill', 'white')
+    .style('font-weight', '600')
+    .each(function(d) {
+      const lines = d.id.split('\n');
+      const lineHeight = 12; // Math.max(7, nodeR(d.size) * 0.45) + 2;
+      const fontSize = 12; // Math.max(7, nodeR(d.size) * 0.45);
+      const startDy = -((lines.length - 1) / 2) * lineHeight;
+
+      d3.select(this)
+        .attr('font-size', fontSize + 'px')
+        .selectAll('tspan')
+        .data(lines)
+        .join('tspan')
+        .attr('x', 0)
+        .attr('dy', (_, i) => (i === 0 ? startDy + fontSize * 0.35 : lineHeight) + 'px')
+        .text(line => line);
+    });
+
+  simulation = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d => d.id).strength(linkStr).distance(d => 80 + 60 / (d.value / maxOverlap + 0.1)))
+    .force('charge', d3.forceManyBody().strength(charge))
+    .force('center', d3.forceCenter(W / 2, H / 2))
+    .force('collision', d3.forceCollide().radius(d => nodeR(d.size) + 16))
+    .on('tick', () => {
+      linkSel
+        .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+        .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+      nodeSel.attr('transform', d => `translate(${d.x},${d.y})`);
+    });
+}
+
+render(currentData);
+</script>

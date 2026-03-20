@@ -1,17 +1,19 @@
 ---
-title: My Site
+title: Discord STEM Servers Network
 toc: false
 ---
 
-This is the landing page.
+{{< server-graph >}}
 
 ## Explore
 
 {{< cards >}}
-  {{< card link="docs" title="Docs" icon="book-open" >}}
+  {{< card link="servers" title="Servers" icon="book-open" >}}
   {{< card link="about" title="About" icon="user" >}}
 {{< /cards >}}
 
 ## Documentation
 
-For more information, visit [Hextra](https://imfing.github.io/hextra).
+Colours, edges, and sizes are random in the graph above.
+
+More coming soon!
